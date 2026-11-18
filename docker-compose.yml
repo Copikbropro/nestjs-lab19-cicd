@@ -1,49 +1,54 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: lab18_postgres
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-nestjs_lab18}
-    ports:
-      - "${DB_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_NAME:-nestjs_lab18}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+name: CI/CD Pipeline — Test, Build & Docker Hub
 
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    image: nestjs-lab18-optimized:latest
-    container_name: lab18_nestjs_api
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - .env
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-    environment:
-      NODE_ENV: production
-      PORT: ${PORT:-3000}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-nestjs_lab18}
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_lab18_19_psu}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-volumes:
-  postgres_data:
+jobs:
+  build-test-and-push:
+    name: CI/CD (Test -> Build -> Docker Hub)
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run unit tests (CI Quality Gate)
+        run: npm run test
+
+      - name: Build NestJS application
+        run: npm run build
+
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Build optimized multi-stage Docker image
+        run: |
+          OWNER="${DOCKERHUB_USERNAME:-local}"
+          docker build --target production \
+            -t "$OWNER/nestjs-lab19-app:${{ github.sha }}" \
+            -t "$OWNER/nestjs-lab19-app:latest" .
+
+      - name: Push Docker image to Docker Hub
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        run: |
+          docker push "$DOCKERHUB_USERNAME/nestjs-lab19-app:${{ github.sha }}"
+          docker push "$DOCKERHUB_USERNAME/nestjs-lab19-app:latest"
