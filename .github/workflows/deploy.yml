@@ -1,4 +1,4 @@
-name: CI/CD Pipeline — Test, Build, Docker & Cloud Deploy
+name: CI/CD Pipeline — Test, Build & Docker Hub
 
 on:
   push:
@@ -6,69 +6,49 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/nestjs-lab19-app
-
 jobs:
-  build-test-and-deploy:
-    name: CI/CD (Test -> Build -> Docker Hub -> Cloud Deploy)
+  build-test-and-push:
+    name: CI/CD (Test -> Build -> Docker Hub)
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
     steps:
-      # 1. Получение исходного кода из репозитория
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Настройка среды Node.js
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      # 3. Установка зависимостей
       - name: Install dependencies
         run: npm install
 
-      # 4. Задание 3 ЛР №19: Запуск автоматических тестов ДО сборки приложения.
-      # Если хотя бы один тест упадет, шаг завершится с ненулевым кодом выхода,
-      # и GitHub Actions немедленно остановит пайплайн (сборка и деплой не произойдут).
       - name: Run unit tests (CI Quality Gate)
         run: npm run test
 
-      # 5. Сборка продакшн-версии NestJS-приложения
       - name: Build NestJS application
         run: npm run build
 
-      # 6. Вход в контейнерный реестр Docker Hub с использованием GitHub Secrets
       - name: Log in to Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
-      # 7. Сборка оптимизированного Docker-образа из Dockerfile (ЛР №18)
       - name: Build optimized multi-stage Docker image
         run: |
-          IMAGE_TAG=${{ secrets.DOCKERHUB_USERNAME || 'local' }}/nestjs-lab19-app:${{ github.sha }}
-          IMAGE_LATEST=${{ secrets.DOCKERHUB_USERNAME || 'local' }}/nestjs-lab19-app:latest
-          docker build --target production -t "$IMAGE_TAG" -t "$IMAGE_LATEST" .
+          OWNER="${DOCKERHUB_USERNAME:-local}"
+          docker build --target production \
+            -t "$OWNER/nestjs-lab19-app:${{ github.sha }}" \
+            -t "$OWNER/nestjs-lab19-app:latest" .
 
-      # 8. Отправка (push) Docker-образа в Docker Hub
       - name: Push Docker image to Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         run: |
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/nestjs-lab19-app:${{ github.sha }}"
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/nestjs-lab19-app:latest"
-
-      # 9. Развертывание приложения на облачной платформе (Heroku Container Registry)
-      - name: Deploy container to Heroku Cloud
-        if: ${{ secrets.HEROKU_API_KEY != '' && secrets.HEROKU_APP_NAME != '' }}
-        env:
-          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-        run: |
-          echo "$HEROKU_API_KEY" | docker login --username=_ --password-stdin registry.heroku.com
-          docker tag "${{ secrets.DOCKERHUB_USERNAME || 'local' }}/nestjs-lab19-app:latest" "registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web"
-          docker push "registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web"
-          curl -n -X PATCH "https://api.heroku.com/apps/${{ secrets.HEROKU_APP_NAME }}/formation"             -d '{"updates":[{"type":"web","docker_image":"'"$(docker inspect --format='{{.Id}}' registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web)"'"}]}'             -H "Content-Type: application/json"             -H "Accept: application/vnd.heroku+json; version=3.docker-releases"             -H "Authorization: Bearer $HEROKU_API_KEY"
+          docker push "$DOCKERHUB_USERNAME/nestjs-lab19-app:${{ github.sha }}"
+          docker push "$DOCKERHUB_USERNAME/nestjs-lab19-app:latest"
