@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.git
+.github
+.env
+postman
+*.txt
+*.md
+Dockerfile*
+docker-compose.yml
+Procfile

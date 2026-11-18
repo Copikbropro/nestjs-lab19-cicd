@@ -1,0 +1,14 @@
+# Компилируемые файлы и зависимости
+/dist
+/node_modules
+/coverage
+
+# Переменные окружения (НИКОГДА не коммитить в Git!)
+.env
+.env.local
+.env.*.local
+
+# Логи и системные файлы
+npm-debug.log*
+.DS_Store
+.vs/
